@@ -1,0 +1,112 @@
+doctl compute droplet create node1 --region fra1 --size 16gb --image ubuntu-16-04-x64 --enable-private-networking --ssh-keys 79:29:54:77:13:2f:9c:b8:06:3e:8b:fe:8d:c0:d7:ba
+
+doctl compute droplet list
+
+ssh root@<>
+
+apt-get update && apt-get install -y docker.io jq
+
+docker version
+
+wget -q --show-progress https://dl.k8s.io/v1.7.6/kubernetes-server-linux-amd64.tar.gz
+
+tar xzf kubernetes-server-linux-amd64.tar.gz
+
+mv kubernetes/server/bin/* /usr/local/bin/
+
+rm -rf *
+
+kubelet --pod-manifest-path /tmp/manifests &> /tmp/kubelet.log &
+
+mkdir /tmp/manifests
+cp nginx.pod1.yaml mkdir /tmp/manifests
+
+docker inspect 58cd35ac3100 | jq .[0].NetworkSettings.IPAddress
+
+curl 172.17.0.2
+
+------------------------------------------------
+
+wget -q --show-progress https://s3.eu-central-1.amazonaws.com/devopswroclaw/etcd-v3.2.6-linux-amd64.tar.gz
+tar xzf etcd-v3.2.6-linux-amd64.tar.gz
+mv etcd-v3.2.6-linux-amd64/etcd* /usr/local/bin/
+rm -rf etcd-*
+
+etcd --data-dir=/tmp/etcd-data --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://localhost:2379 &> /tmp/etcd.log &
+etcdctl cluster-health
+
+kube-apiserver --etcd-servers=http://localhost:2379 --service-cluster-ip-range=10.0.0.0/16 --bind-address=0.0.0.0 --insecure-bind-address=0.0.0.0 &> /tmp/apiserver.log &
+curl http://localhost:8080/api/v1/nodes
+kubectl version
+
+pkill -f kubelet
+kubelet --api-servers=localhost:8080 &> /tmp/kubelet.log &
+kubectl get nodes
+kubectl get pods
+
+kubectl apply -f nginx.pod1.yaml
+
+cp nginx.pod1.yaml nginx.pod2.yaml
+
+
+----------------------------
+
+kube-scheduler --master=http://localhost:8080 &> /tmp/scheduler.log &
+kubectl get pods
+
+---------------------------------
+
+kube-controller-manager --master=http://localhost:8080 &> /tmp/controller-manager.log &
+
+k apply -f nginx.deploy.yaml
+
+k get deploy 
+k get rs
+k get po
+
+----------------- proxy
+
+kubectl create -f nginx.svc.yaml
+kube-proxy --master=http://localhost:8080 &> /tmp/proxy.log &
+
+iptables -t nat -vnL | grep 30073
+
+
+----------------
+
+doctl compute droplet create node2 --region fra1 --size 16gb --image ubuntu-16-04-x64 --enable-private-networking --ssh-keys 79:29:54:77:13:2f:9c:b8:06:3e:8b:fe:8d:c0:d7:ba
+
+apt-get update && apt-get install -y docker.io
+wget -q --show-progress https://dl.k8s.io/v1.7.6/kubernetes-server-linux-amd64.tar.gz
+tar xzf kubernetes-server-linux-amd64.tar.gz
+mv kubernetes/server/bin/* /usr/local/bin/
+rm -rf *
+
+export MASTER_IP=<>
+kubelet --api-servers=${MASTER_IP}:8080 &> /tmp/kubelet.log &
+
+k get nodes
+
+--------------- flannel
+
+export MASTER_IP=
+export NODE_IP=
+wget -q --show-progress https://s3.eu-central-1.amazonaws.com/devopswroclaw/flannel-v0.6.2-linux-amd64.tar.gz
+tar xzf flannel-v0.6.2-linux-amd64.tar.gz
+mv flanneld mk-docker-opts.sh /usr/local/bin/
+rm -rf flann* README*
+etcdctl -C http://$MASTER_IP:2379 set /coreos.com/network/config '{"Network": "10.0.0.0/8", "SubnetLen": 20, "SubnetMin": "10.10.0.0","SubnetMax": "10.99.0.0","Backend": {"Type": "vxlan","VNI": 100,"Port": 8472}}'
+
+flanneld -iface=$NODE_IP -etcd-endpoints http://$MASTER_IP:2379 &> /tmp/flanneld.log &
+/run/flannel/subnet.env
+mk-docker-opts.sh -d /etc/default/docker
+ 
+service docker restart 
+
+kube-proxy --master=http://${MASTER_IP}:8080 &> /tmp/proxy.log &
+--------
+
+doctl compute load-balancer create --name lb --region fra1 --forwarding-rules entry_protocol:http,entry_port:80,target_protocol:http,target_port:30074 --health-check protocol:http,port:30074,path:/,check_interval_seconds:10,response_timeout_seconds:5,healthy_threshold:5,unhealthy_threshold:3
+doctl compute droplet list
+doctl compute load-balancer add-droplets 58f02699-5717-43e6-bbfe-51ef4cc0a227 --droplet-ids 63370004,63460608
+doctl compute load-balancer get 58f02699-5717-43e6-bbfe-51ef4cc0a227

@@ -1,0 +1,18 @@
+root@node:~# git diff nginx.yaml nginx2.yaml
+diff --git a/nginx.yaml b/nginx2.yaml
+index 7053af0..36885ae 100644
+--- a/nginx.yaml
++++ b/nginx2.yaml
+@@ -1,10 +1,11 @@
+ apiVersion: v1
+ kind: Pod
+ metadata:
+-  name: nginx
++  name: nginx2
+   labels:
+     app: nginx
+ spec:
++  nodeName: node1
+   containers:
+   - name: nginx
+     image: nginx
